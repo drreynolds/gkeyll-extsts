@@ -829,12 +829,12 @@ gkyl_sundials_stepper_init_ssp_rk(struct gkyl_sundials *gksun,
 }
 
 static void
-gkyl_sundials_stepper_init_sts(struct gkyl_sundials *gksun,
+gkyl_sundials_sts_set_defaults(struct gkyl_sundials *gksun,
   struct gkyl_sundials_stepper_inp *inp)
 {
-  // Initialize the Super Time Stepping integrator.
-
-  // Set default values if user didn't provide a value.
+  // Set default values of STS inputs (shared by LSRKStep STS and ExtSTS) if
+  // the user didn't provide a value. The default maximum number of stages is
+  // set by each method.
   if (inp->rel_tol < 0.0)
     inp->rel_tol = 1e-7;
   
@@ -844,16 +844,13 @@ gkyl_sundials_stepper_init_sts(struct gkyl_sundials *gksun,
   if (inp->max_steps == 0)
     inp->max_steps = 1e5;
 
-  if (inp->max_num_stages <= 0)
-    inp->max_num_stages = 200;
-
   if (inp->gsnv == NULL) {
-    fprintf(stderr, "\ngkyl_sundials_stepper_init_sts: Error, gsnv is null.\n");
+    fprintf(stderr, "\ngkyl_sundials_sts_set_defaults: Error, gsnv is null.\n");
     assert(false);
   }
 
   if (inp->app_ctx == NULL) {
-    fprintf(stderr, "\ngkyl_sundials_stepper_init_sts: Error, app_ctx is null.\n");
+    fprintf(stderr, "\ngkyl_sundials_sts_set_defaults: Error, app_ctx is null.\n");
     assert(false);
   }
 
@@ -876,6 +873,66 @@ gkyl_sundials_stepper_init_sts(struct gkyl_sundials *gksun,
 
   if (inp->dee_safety_fac <= 1.0)
     inp->dee_safety_fac = 1.1;
+}
+
+static void
+gkyl_sundials_sts_dom_eig_init(struct gkyl_sundials *gksun,
+  struct gkyl_sundials_stepper_inp *inp, void *arkode_mem_sts, ARKDomEigFn gk_dom_eig_func)
+{
+  // Set up the dominant eigenvalue estimation (DEE) of an LSRKStep STS
+  // integrator, either with Gkeyll's estimate (gk_dom_eig_func) or with
+  // SUNDIALS' power iteration estimator.
+  int flag;
+  N_Vector nvin = inp->gsnv->nvec;
+
+  // Randomize the input vector (needed by DEE).
+  smanynvec_randomize(nvin, 0.5, 1.5);
+
+  if (inp->dee_by_gkeyll) {
+    // Gkeyll estimates the dominant eigenvalue.
+    flag = LSRKStepSetDomEigFn(arkode_mem_sts, gk_dom_eig_func);
+    sundials_check_flag(&flag, "LSRKStepSetDomEigFn", 1);
+  }
+  else {
+    // Set the initial eigenvector for DEE. Should reset after ICs are set.
+    gksun->dom_eig_est = SUNDomEigEstimator_Power(nvin, inp->dee_max_iter,
+      inp->dee_rel_tol, nvin->sunctx);
+    sundials_check_flag((void*)gksun->dom_eig_est, "SUNDomEigEstimator_Power", 0);
+  
+    flag = LSRKStepSetDomEigEstimator(arkode_mem_sts, gksun->dom_eig_est);
+    sundials_check_flag(&flag, "LSRKStepSetDomEigEstimator", 1);
+  
+    flag = LSRKStepSetNumDomEigEstInitPreprocessIters(arkode_mem_sts, inp->dee_num_init_warmups);
+    sundials_check_flag(&flag, "LSRKStepSetNumDomEigEstInitPreprocessIters", 1);
+  
+    flag = LSRKStepSetNumDomEigEstPreprocessIters(arkode_mem_sts, inp->dee_num_succ_warmups);
+    sundials_check_flag(&flag, "LSRKStepSetNumDomEigEstPreprocessIters", 1);
+  }
+
+  // Zero out input vector (that's what's expected/assumed during initialization).
+  smanynvec_clear(nvin, 0.0);
+
+  // Specify after how many successful steps dom_eig is recomputed.
+  // Note that nsteps = 0 refers to constant dominant eigenvalue.
+  flag = LSRKStepSetDomEigFrequency(arkode_mem_sts, inp->dee_frequency);
+  sundials_check_flag(&flag, "LSRKStepSetDomEigFrequency", 1);
+
+  // Specify safety factor for user provided dom_eig.
+  flag = LSRKStepSetDomEigSafetyFactor(arkode_mem_sts, inp->dee_safety_fac);
+  sundials_check_flag(&flag, "LSRKStepSetDomEigSafetyFactor", 1);
+}
+
+static void
+gkyl_sundials_stepper_init_sts(struct gkyl_sundials *gksun,
+  struct gkyl_sundials_stepper_inp *inp)
+{
+  // Initialize the Super Time Stepping integrator.
+
+  // Set default values if user didn't provide a value.
+  gkyl_sundials_sts_set_defaults(gksun, inp);
+
+  if (inp->max_num_stages <= 0)
+    inp->max_num_stages = 200;
   // Finished setting default values.
 
   int flag;
@@ -900,37 +957,9 @@ gkyl_sundials_stepper_init_sts(struct gkyl_sundials *gksun,
   flag = ARKodeSStolerances(gksun->arkode_mem_sts, inp->rel_tol, inp->abs_tol);
   sundials_check_flag(&flag, "ARKStepSStolerances", 1);
 
-  // Randomize the input vector (needed by DEE).
-  smanynvec_randomize(nvin, 0.5, 1.5);
-
-  if (inp->dee_by_gkeyll) {
-    // Gkeyll estimates the dominant eigenvalue.
-    flag = LSRKStepSetDomEigFn(gksun->arkode_mem_sts, gksun->has_ssprk? gksun->gk_dom_eig_sts_func : gksun->gk_dom_eig_func);
-    sundials_check_flag(&flag, "LSRKStepSetDomEigFn", 1);
-  }
-  else {
-    // Set the initial eigenvector for DEE. Should reset after ICs are set.
-    gksun->dom_eig_est = SUNDomEigEstimator_Power(nvin, inp->dee_max_iter,
-      inp->dee_rel_tol, nvin->sunctx);
-    sundials_check_flag(&flag, "SUNDomEigEstimator_Power", 0);
-  
-    flag = LSRKStepSetDomEigEstimator(gksun->arkode_mem_sts, gksun->dom_eig_est);
-    sundials_check_flag(&flag, "LSRKStepSetDomEigEstimator", 1);
-  
-    flag = LSRKStepSetNumDomEigEstInitPreprocessIters(gksun->arkode_mem_sts, inp->dee_num_init_warmups);
-    sundials_check_flag(&flag, "LSRKStepSetNumDomEigEstInitPreprocessIters", 1);
-  
-    flag = LSRKStepSetNumDomEigEstPreprocessIters(gksun->arkode_mem_sts, inp->dee_num_succ_warmups);
-    sundials_check_flag(&flag, "LSRKStepSetNumDomEigEstPreprocessIters", 1);
-  }
-
-  // Zero out input vector (that's what's expected/assumed during initialization).
-  smanynvec_clear(nvin, 0.0);
-
-  // Specify after how many successful steps dom_eig is recomputed.
-  // Note that nsteps = 0 refers to constant dominant eigenvalue.
-  flag = LSRKStepSetDomEigFrequency(gksun->arkode_mem_sts, inp->dee_frequency);
-  sundials_check_flag(&flag, "LSRKStepSetDomEigFrequency", 1);
+  // Dominant eigenvalue estimation.
+  gkyl_sundials_sts_dom_eig_init(gksun, inp, gksun->arkode_mem_sts,
+    gksun->has_ssprk? gksun->gk_dom_eig_sts_func : gksun->gk_dom_eig_func);
 
   // Specify max number of stages allowed.
   flag = LSRKStepSetMaxNumStages(gksun->arkode_mem_sts, inp->max_num_stages);
@@ -938,11 +967,7 @@ gkyl_sundials_stepper_init_sts(struct gkyl_sundials *gksun,
 
   // Specify max number of steps allowed.
   flag = ARKodeSetMaxNumSteps(gksun->arkode_mem_sts, inp->max_steps);
-  sundials_check_flag(&flag, "LSRKStepSetMaxNumStages", 1);
-
-  // Specify safety factor for user provided dom_eig.
-  flag = LSRKStepSetDomEigSafetyFactor(gksun->arkode_mem_sts, inp->dee_safety_fac);
-  sundials_check_flag(&flag, "LSRKStepSetDomEigSafetyFactor", 1);
+  sundials_check_flag(&flag, "ARKodeSetMaxNumSteps", 1);
 
   // Specify the STS method.
   flag = LSRKStepSetSTSMethod(gksun->arkode_mem_sts, gs_translate_gk_to_sundials_method_sts(inp->rk_method));
@@ -963,10 +988,130 @@ gkyl_sundials_stepper_init_sts(struct gkyl_sundials *gksun,
   sundials_check_flag(&flag, "ARKodeSetPostStepFn", 1);
 }
 
+static void
+gkyl_sundials_stepper_init_mri_extsts(struct gkyl_sundials *gksun,
+  struct gkyl_sundials_stepper_inp *inp)
+{
+  // Initialize an extended super time stepping (ExtSTS) method: an MRI method
+  // whose outer (explicit) stages evolve the terms otherwise stepped with
+  // SSP-RK, and whose inner STS integrator (one step per outer stage) evolves
+  // the terms otherwise stepped with STS.
+
+  // Set default values if user didn't provide a value. If max_num_stages is
+  // not given we keep the ExtSTS default (10000), because a single STS step
+  // spans a whole outer stage.
+  gkyl_sundials_sts_set_defaults(gksun, inp);
+  // Finished setting default values.
+
+  int flag;
+  N_Vector nvin = inp->gsnv->nvec;
+  if (nvin == 0) {
+    fprintf(stderr, "\ngkyl_sundials_stepper_init_mri_extsts: Error, gsnv has null N_Vector.\n");
+    assert(false);
+  }
+
+  // Create the MRIStep ExtSTS integrator, with the STS terms as the diffusive
+  // function fd, the SSP-RK terms as the explicit function fe, and no
+  // implicit function fi.
+  gksun->arkode_mem_outer = MRIStepCreateExtSTS(gksun->dfdt_sts_func, gksun->dfdt_ssprk_func, NULL,
+    inp->t_curr, nvin, nvin->sunctx);
+  sundials_check_flag((void*)gksun->arkode_mem_outer, "MRIStepCreateExtSTS", 0);
+
+  // Access the inner LSRKStep STS integrator (owned by the MRIStep integrator).
+  flag = MRIStepGetSTS(gksun->arkode_mem_outer, &gksun->arkode_mem_sts);
+  sundials_check_flag(&flag, "MRIStepGetSTS", 1);
+  sundials_check_flag(gksun->arkode_mem_sts, "MRIStepGetSTS", 0);
+
+  // The MRIStep integrator also plays the role of the SSP-RK stepper: the
+  // SSP-RK df/dt and the SSP-RK step hooks query the stage index, current
+  // state and step size of arkode_mem_ssprk.
+  gksun->arkode_mem_ssprk = gksun->arkode_mem_outer;
+  inp->app_ctx->arkode_mem_ssprk = gksun->arkode_mem_ssprk;
+  inp->app_ctx->arkode_mem_sts = gksun->arkode_mem_sts;
+
+  // Set user data (app pointer). This is passed on to the inner STS integrator.
+  flag = ARKodeSetUserData(gksun->arkode_mem_outer, inp->app_ctx);
+  sundials_check_flag(&flag, "ARKodeSetUserData", 1);
+
+  // Specify tolerances and attach the error function (used with adaptive steps).
+  flag = ARKodeSStolerances(gksun->arkode_mem_outer, inp->rel_tol, inp->abs_tol);
+  sundials_check_flag(&flag, "ARKodeSStolerances", 1);
+  flag = ARKodeWFtolerances(gksun->arkode_mem_outer, gksun->snvec_efun_cell_norm_func);
+  sundials_check_flag(&flag, "ARKodeWFtolerances (extsts)", 1);
+
+  // Specify the STS method of the inner integrator.
+  flag = LSRKStepSetSTSMethod(gksun->arkode_mem_sts, gs_translate_gk_to_sundials_method_sts(inp->rk_method));
+  sundials_check_flag(&flag, "LSRKStepSetSTSMethod", 1);
+
+  // Dominant eigenvalue estimation for the STS terms.
+  gkyl_sundials_sts_dom_eig_init(gksun, inp, gksun->arkode_mem_sts, gksun->gk_dom_eig_sts_func);
+
+  if (inp->max_num_stages > 0) {
+    // Specify max number of STS stages allowed.
+    flag = LSRKStepSetMaxNumStages(gksun->arkode_mem_sts, inp->max_num_stages);
+    sundials_check_flag(&flag, "LSRKStepSetMaxNumStages", 1);
+  }
+
+  if (inp->mri_coupling != 0) {
+    // Set the outer MRI method.
+    MRIStepCoupling mri_coupling = MRIStepCoupling_LoadTable((ARKODE_MRITableID) inp->mri_coupling);
+    sundials_check_flag((void*)mri_coupling, "MRIStepCoupling_LoadTable", 0);
+    flag = MRIStepSetCoupling(gksun->arkode_mem_outer, mri_coupling);
+    sundials_check_flag(&flag, "MRIStepSetCoupling", 1);
+    MRIStepCoupling_Free(mri_coupling);
+  }
+
+  // Specify max number of steps allowed.
+  flag = ARKodeSetMaxNumSteps(gksun->arkode_mem_outer, inp->max_steps);
+  sundials_check_flag(&flag, "ARKodeSetMaxNumSteps", 1);
+
+  // Set pre/post processing methods in arkode mem. The SSP-RK step hooks are
+  // used at the beginning/end of each outer step.
+  flag = ARKodeSetPreStepFn(gksun->arkode_mem_outer, gksun->pre_process_step_ssprk_func);
+  sundials_check_flag(&flag, "ARKodeSetPreStepFn", 1);
+  flag = ARKodeSetPostStepFn(gksun->arkode_mem_outer, gksun->post_process_step_ssprk_func);
+  sundials_check_flag(&flag, "ARKodeSetPostStepFn", 1);
+}
+
 void
 gkyl_sundials_stepper_init(struct gkyl_sundials *gksun,
   struct gkyl_sundials_stepper_inp *inp)
 {
+  gksun->is_extsts = false;
+  if (gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_MRI_EXTSTS)) {
+    // Extended super time stepping (ExtSTS).
+    if ( gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3) ||
+         gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_LSRK_SSP_S_2) ||
+         gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_LSRK_SSP_S_3) ||
+         gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_LSRK_SSP_10_4) ) {
+      fprintf(stderr, "\ngkyl_sundials_stepper_init: Error, GKYL_SUNDIALS_METHOD_MRI_EXTSTS cannot be combined with an SSP-RK method.\n");
+      assert(false);
+    }
+    if ( !(gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_LSRK_RKC_2) ||
+           gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_LSRK_RKL_2)) ) {
+      printf("gkyl_sundials_stepper_init: no STS method given with GKYL_SUNDIALS_METHOD_MRI_EXTSTS, using GKYL_SUNDIALS_METHOD_LSRK_RKL_2.\n");
+      inp->rk_method |= GKYL_SUNDIALS_METHOD_LSRK_RKL_2;
+    }
+
+    // Maximum number steps.
+    if (inp->max_steps == 0)
+      inp->max_steps = 100000;
+
+    gksun->stepper_inp = inp; // Store stepper inputs.
+    gksun->app_ctx = inp->app_ctx; // Copy pointer to app pointer.
+
+    gksun->has_ssprk = false;
+    gksun->has_sts = true;
+    gksun->is_extsts = true;
+    gksun->is_opsplit = false;
+
+    gkyl_sundials_stepper_init_mri_extsts(gksun, inp);
+
+    // Store outermost stepper mem in context so it can be accessed in methods.
+    inp->app_ctx->arkode_mem_outer = gksun->arkode_mem_outer;
+    return;
+  }
+
   // Set default values if user didn't provide a value.
   bool is_lsrk_ssp_s_3 = gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_LSRK_SSP_S_3);
   if ( is_lsrk_ssp_s_3 && (inp->num_stages == 3) ) {
@@ -1079,15 +1224,16 @@ gkyl_sundials_arkode_reset(struct gkyl_sundials *gksun, double time,
     }
   }
 
-  if (gksun->has_ssprk) {
-    if (gksun->is_opsplit ||
+  if (gksun->has_ssprk || gksun->is_extsts) {
+    if (gksun->is_opsplit || gksun->is_extsts ||
         gkyl_sundials_check_rk_method(gksun->stepper_inp->rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3)) {
       // Estimate the CFL stable dt.
       // Use the temporary NVector.
       N_Vector manynvbuff = gsmanynv_buff->nvec;
   
       // Compute dt.
-      if (gksun->is_opsplit) {
+      if (gksun->is_opsplit || gksun->is_extsts) {
+        // For ExtSTS arkode_mem_ssprk is the MRIStep (outer) memory.
         double dt_ssprk;
         flag = gksun->dfdt_ssprk_func(time, manynvin, manynvbuff, gksun->app_ctx);
         flag = gksun->cfl_stable_dt_ssprk_func(manynvin, time, &dt_ssprk, gksun->app_ctx);
@@ -1217,7 +1363,9 @@ long
 gkyl_sundials_get_num_rhs_evals(struct gkyl_sundials *gksun)
 {
   long num_evals = 0;
-  if (gksun->has_ssprk) {
+  if (gksun->has_ssprk || gksun->is_extsts) {
+    // For ExtSTS arkode_mem_ssprk is the MRIStep memory, whose explicit (fe)
+    // evaluations are the SSP-RK terms.
     long num_evals_ssprk = 0;
     int flag = ARKodeGetNumRhsEvals(gksun->arkode_mem_ssprk, 0, &num_evals_ssprk);
     sundials_check_flag(&flag, "ARKodeGetNumRhsEvals", 1);
@@ -1314,16 +1462,22 @@ gkyl_sundials_operator_split_in_method(enum gkyl_sundials_rk_method rk_method)
 void
 gkyl_sundials_release(struct gkyl_sundials *gksun)
 {
-  if (gksun->has_ssprk)
-    ARKodeFree(&gksun->arkode_mem_ssprk);
-
-  if (gksun->has_sts)
-    ARKodeFree(&gksun->arkode_mem_sts);
-
-  if (gksun->is_opsplit) {
-    SUNStepper_Destroy(&gksun->stepper_ssprk);
-    SUNStepper_Destroy(&gksun->stepper_sts);
+  if (gksun->is_extsts) {
+    // Freeing the MRIStep memory also frees its inner STS memory.
     ARKodeFree(&gksun->arkode_mem_outer);
+  }
+  else {
+    if (gksun->has_ssprk)
+      ARKodeFree(&gksun->arkode_mem_ssprk);
+
+    if (gksun->has_sts)
+      ARKodeFree(&gksun->arkode_mem_sts);
+
+    if (gksun->is_opsplit) {
+      SUNStepper_Destroy(&gksun->stepper_ssprk);
+      SUNStepper_Destroy(&gksun->stepper_sts);
+      ARKodeFree(&gksun->arkode_mem_outer);
+    }
   }
 
   SUNContext_Free(&gksun->sunctx);
