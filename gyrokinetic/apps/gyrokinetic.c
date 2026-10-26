@@ -931,6 +931,16 @@ gyrokinetic_post_process_step_sts_generic(void *app_gen, double tcurr, double dt
 }
 
 static void
+gyrokinetic_post_process_stage_extsts_generic(void *app_gen, double tcurr, double dt,
+  void *fdot_args_gen, int stage_idx, int num_stages)
+{
+  struct gkyl_gyrokinetic_app *app = app_gen;
+  struct gkyl_gyrokinetic_fdot_args *fdot_args = fdot_args_gen;
+
+  gyrokinetic_post_process_stage_extsts(app, tcurr, dt, fdot_args_gen, stage_idx, num_stages);
+}
+
+static void
 gyrokinetic_pre_process_step_opsplit_generic(void *app_gen, double tcurr, double dt,
   void *fdot_args_gen)
 {
@@ -1146,6 +1156,7 @@ gkyl_gyrokinetic_app_new_solver(struct gkyl_gk *gk, gkyl_gyrokinetic_app *app)
     app->sundials_app_ctx.pre_process_rk_stage_sts_func = gyrokinetic_pre_process_rk_stage_sts_generic;
     app->sundials_app_ctx.post_process_rk_stage_sts_func = gyrokinetic_post_process_rk_stage_sts_generic;
     app->sundials_app_ctx.post_process_step_sts_func = gyrokinetic_post_process_step_sts_generic;
+    app->sundials_app_ctx.post_process_stage_extsts_func = gyrokinetic_post_process_stage_extsts_generic;
     app->sundials_app_ctx.pre_process_step_opsplit_func = gyrokinetic_pre_process_step_opsplit_generic;
     app->sundials_app_ctx.post_process_step_opsplit_func = gyrokinetic_post_process_step_opsplit_generic;
 

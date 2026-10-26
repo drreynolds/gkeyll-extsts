@@ -63,6 +63,8 @@ struct gkyl_sundials_app_ctx {
   void (*pre_process_rk_stage_sts_func)(void *app_gen, double tcurr, double dt, void *fdot_args_gen, int stage_idx, int num_stages);
   void (*post_process_rk_stage_sts_func)(void* app_gen, double tcurr, double dt, void *fdot_args, int stage_idx, int num_stages);
   void (*post_process_step_sts_func)(void *app_gen, double tcurr, double dt, void *fdot_args_gen);
+  // Operations performed at the end of an ExtSTS outer stage.
+  void (*post_process_stage_extsts_func)(void* app_gen, double tcurr, double dt, void *fdot_args, int stage_idx, int num_stages);
   // Function that reduces a local dt across MPI processes.
   double (*reduce_dt_func)(void *app_gen, double t_curr, double dt_local);
   // Objects below are private.

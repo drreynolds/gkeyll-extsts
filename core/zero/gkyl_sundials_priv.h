@@ -87,6 +87,9 @@ struct gkyl_sundials
   int (*pre_process_rk_stage_sts_func)(sunrealtype t_curr, N_Vector manynvec_y, void* ctx);
   int (*post_process_rk_stage_sts_func)(sunrealtype t_curr, N_Vector manynvec_y, void* ctx);
 
+  int (*pre_process_rk_stage_extsts_func)(sunrealtype t_curr, N_Vector manynvec_y, void* ctx);
+  int (*post_process_stage_extsts_func)(sunrealtype t_curr, N_Vector manynvec_y, void* ctx);
+
   int (*pre_process_step_opsplit_func)(sunrealtype t_curr, N_Vector manynvec_y, long int step, int attempt, void* ctx);
   int (*post_process_step_opsplit_func)(sunrealtype t_curr, N_Vector manynvec_y, long int step, void* ctx);
 };

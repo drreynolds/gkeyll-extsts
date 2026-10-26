@@ -1066,7 +1066,13 @@ gkyl_sundials_stepper_init_mri_extsts(struct gkyl_sundials *gksun,
   sundials_check_flag(&flag, "ARKodeSetMaxNumSteps", 1);
 
   // Set pre/post processing methods in arkode mem. The SSP-RK step hooks are
-  // used at the beginning/end of each outer step.
+  // used at the beginning/end of each outer step, and the outer stages are
+  // post-processed so that fields and boundary conditions are consistent with
+  // each stage before the SSP-RK terms are evaluated on it.
+  flag = ARKodeSetPreRhsFn(gksun->arkode_mem_outer, gksun->pre_process_rk_stage_extsts_func);
+  sundials_check_flag(&flag, "ARKodeSetPreRhsFn", 1);
+  flag = ARKodeSetPostprocessStageFn(gksun->arkode_mem_outer, gksun->post_process_stage_extsts_func);
+  sundials_check_flag(&flag, "ARKodeSetPostprocessStageFn", 1);
   flag = ARKodeSetPreStepFn(gksun->arkode_mem_outer, gksun->pre_process_step_ssprk_func);
   sundials_check_flag(&flag, "ARKodeSetPreStepFn", 1);
   flag = ARKodeSetPostStepFn(gksun->arkode_mem_outer, gksun->post_process_step_ssprk_func);

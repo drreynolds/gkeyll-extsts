@@ -569,6 +569,74 @@ post_process_step_gyrokinetic_sts(sunrealtype t_curr, N_Vector manynvec_y, long 
 };
 
 /**
+ * Pre-process the evaluation of the SSP-RK terms at an ExtSTS outer stage.
+ *
+ * Unlike SSP-RK methods, whose stages are built from the state at the start
+ * of the step (yn), ExtSTS stages are built from the current state (ycur), so
+ * the operations of the first stage (e.g. clearing boundary fluxes) are applied
+ * to the input vector.
+ *
+ * @param t_curr Current simulation time.
+ * @param manynvec_y State vector (ycur).
+ * @param ctx App-specific context.
+ * @return Sucess (=0) flag.
+ */
+static int
+pre_process_rk_stage_gyrokinetic_extsts(sunrealtype t_curr, N_Vector manynvec_y, void* ctx)
+{
+  struct gkyl_sundials_app_ctx *app_ctx = ctx;
+
+  int stage_idx, num_stages;
+  double dt;
+  int flag = 0;
+  flag = ARKodeGetStageIndex(app_ctx->arkode_mem_outer, &stage_idx, &num_stages);
+  flag = ARKodeGetCurrentStep(app_ctx->arkode_mem_outer, &dt);
+
+  // Distribute state vector as Gkeyll expects.
+  struct gkyl_gyrokinetic_fdot_args *fdot_args = app_ctx->fdot_args_ptr;
+  unpack_manynvec_gyrokinetic_in(fdot_args, manynvec_y);
+
+  app_ctx->pre_process_rk_stage_ssprk_func(app_ctx->app_ptr, t_curr, dt, fdot_args, stage_idx, num_stages);
+  return 0;
+};
+
+/**
+ * Post-process an ExtSTS outer stage.
+ *
+ * @param t_curr Current simulation time.
+ * @param manynvec_ycur Stage solution.
+ * @param ctx App-specific context.
+ * @return Sucess (=0) flag.
+ */
+static int
+post_process_stage_gyrokinetic_extsts(sunrealtype t_curr, N_Vector manynvec_ycur, void* ctx)
+{
+  struct gkyl_sundials_app_ctx *app_ctx = ctx;
+
+  int stage_idx, num_stages;
+  double dt;
+  int flag = 0;
+  flag = ARKodeGetStageIndex(app_ctx->arkode_mem_outer, &stage_idx, &num_stages);
+  flag = ARKodeGetCurrentStep(app_ctx->arkode_mem_outer, &dt);
+
+  // Distribute state vector as Gkeyll expects.
+  struct gkyl_gyrokinetic_fdot_args *fdot_args = app_ctx->fdot_args_ptr;
+  unpack_manynvec_gyrokinetic_out(fdot_args, manynvec_ycur);
+  if (stage_idx == 1) {
+    // The first stage after the start of the step also needs the state at the
+    // start of the step.
+    N_Vector manynvec_yn;
+    flag = ARKodeGetLastState(app_ctx->arkode_mem_outer, &manynvec_yn);
+    unpack_manynvec_gyrokinetic_distf_in(fdot_args, manynvec_yn);
+    unpack_manynvec_gyrokinetic_field_in(fdot_args, manynvec_yn);
+  }
+
+  app_ctx->post_process_stage_extsts_func(app_ctx->app_ptr, t_curr, dt, fdot_args, stage_idx, num_stages);
+
+  return 0;
+};
+
+/**
  * Pre-process a operator split step.
  *
  * @param t_curr Current simulation time.
@@ -791,6 +859,9 @@ gkyl_sundials_gyrokinetic_assign_methods(struct gkyl_sundials *gksun)
   gksun->pre_process_rk_stage_sts_func = pre_process_rk_stage_gyrokinetic_sts;
   gksun->post_process_rk_stage_sts_func = post_process_rk_stage_gyrokinetic_sts;
   gksun->post_process_step_sts_func = post_process_step_gyrokinetic_sts;
+
+  gksun->pre_process_rk_stage_extsts_func = pre_process_rk_stage_gyrokinetic_extsts;
+  gksun->post_process_stage_extsts_func = post_process_stage_gyrokinetic_extsts;
 
   gksun->pre_process_step_opsplit_func = pre_process_step_gyrokinetic_opsplit;
   gksun->post_process_step_opsplit_func = post_process_step_gyrokinetic_opsplit;
