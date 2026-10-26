@@ -1077,6 +1077,28 @@ gkyl_sundials_stepper_init_mri_extsts(struct gkyl_sundials *gksun,
     // Set CFL safety factor one to ensure exact use of the stable time step size.
     flag = ARKodeSetCFLFraction(gksun->arkode_mem_outer, SUN_RCONST(1.0));
     sundials_check_flag(&flag, "ARKodeSetCFLFraction", 1);
+
+    // Time step adaptivity controller and parameters. Compared with the default
+    // controller, these reduce rejected steps by ~4-5x when the step is limited
+    // by the stability of the outer method rather than by the CFL cap, with
+    // similar accepted step sizes (rt_gk_sheath_2x2v_p1).
+    gksun->adapt_controller = SUNAdaptController_Soderlind(nvin->sunctx);
+    sundials_check_flag((void*)gksun->adapt_controller, "SUNAdaptController_Soderlind", 0);
+    flag = SUNAdaptController_SetParams_Soderlind(gksun->adapt_controller,
+      SUN_RCONST(0.875), SUN_RCONST(-0.5), SUN_RCONST(0.0), SUN_RCONST(0.0), SUN_RCONST(0.0));
+    sundials_check_flag(&flag, "SUNAdaptController_SetParams_Soderlind", 1);
+    flag = ARKodeSetAdaptController(gksun->arkode_mem_outer, gksun->adapt_controller);
+    sundials_check_flag(&flag, "ARKodeSetAdaptController", 1);
+    flag = ARKodeSetSafetyFactor(gksun->arkode_mem_outer, SUN_RCONST(0.9));
+    sundials_check_flag(&flag, "ARKodeSetSafetyFactor", 1);
+    flag = ARKodeSetMaxGrowth(gksun->arkode_mem_outer, SUN_RCONST(1.5));
+    sundials_check_flag(&flag, "ARKodeSetMaxGrowth", 1);
+    flag = ARKodeSetMaxFirstGrowth(gksun->arkode_mem_outer, SUN_RCONST(1.5));
+    sundials_check_flag(&flag, "ARKodeSetMaxFirstGrowth", 1);
+    flag = ARKodeSetMinReduction(gksun->arkode_mem_outer, SUN_RCONST(0.25));
+    sundials_check_flag(&flag, "ARKodeSetMinReduction", 1);
+    flag = ARKodeSetMaxEFailGrowth(gksun->arkode_mem_outer, SUN_RCONST(0.2));
+    sundials_check_flag(&flag, "ARKodeSetMaxEFailGrowth", 1);
   }
 
   // Set pre/post processing methods in arkode mem. The SSP-RK step hooks are
@@ -1098,6 +1120,7 @@ gkyl_sundials_stepper_init(struct gkyl_sundials *gksun,
   struct gkyl_sundials_stepper_inp *inp)
 {
   gksun->is_extsts = false;
+  gksun->adapt_controller = NULL;
   if (gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_MRI_EXTSTS)) {
     // Extended super time stepping (ExtSTS).
     if ( gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3) ||
@@ -1498,6 +1521,9 @@ gkyl_sundials_release(struct gkyl_sundials *gksun)
   if (gksun->is_extsts) {
     // Freeing the MRIStep memory also frees its inner STS memory.
     ARKodeFree(&gksun->arkode_mem_outer);
+    // The time step controller is not owned by ARKODE.
+    if (gksun->adapt_controller != NULL)
+      SUNAdaptController_Destroy(gksun->adapt_controller);
   }
   else {
     if (gksun->has_ssprk)

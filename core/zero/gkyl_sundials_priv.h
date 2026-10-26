@@ -15,6 +15,7 @@
 #include <sundomeigest/sundomeigest_power.h> // Power iteration dominant eigen value estimator.
 #include <arkode/arkode_splittingstep.h> // Operator splitting.
 #include <arkode/arkode_mristep.h> // Extended STS (MRIStep).
+#include <sunadaptcontroller/sunadaptcontroller_soderlind.h> // Time step controller (ExtSTS).
 
 // Give access to the Gkeyll vector from within the NVECTOR.
 #define NV_CONTENT_GKZ(v) ((N_VectorContent_Gkeyll)(v->content))
@@ -59,6 +60,7 @@ struct gkyl_sundials
   SUNDomEigEstimator dom_eig_est; // Dominant eigenvalue estimator.
   bool is_opsplit; // Whether we are using an operator split approach.
   bool is_extsts; // Whether we are using an extended STS (MRI) method.
+  SUNAdaptController adapt_controller; // Time step controller of adaptive ExtSTS (owned here; NULL if unused).
   SUNStepper stepper_ssprk, stepper_sts; // Steppers for operator splitting.
   void *arkode_mem_outer; // Memory for the outermost ARKODE stepper (e.g. operator split).
   // Methods assigned by specific apps.
