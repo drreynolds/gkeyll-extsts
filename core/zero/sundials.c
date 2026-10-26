@@ -835,10 +835,12 @@ gkyl_sundials_sts_set_defaults(struct gkyl_sundials *gksun,
   // Set default values of STS inputs (shared by LSRKStep STS and ExtSTS) if
   // the user didn't provide a value. The default maximum number of stages is
   // set by each method.
-  if (inp->rel_tol < 0.0)
+  // A tolerance <= 0 means not set (inputs are zero-initialized, and a zero
+  // tolerance would make the error weights infinite where the solution is 0).
+  if (inp->rel_tol <= 0.0)
     inp->rel_tol = 1e-7;
   
-  if (inp->abs_tol < 0.0)
+  if (inp->abs_tol <= 0.0)
     inp->abs_tol = 1e-12;
 
   if (inp->max_steps == 0)
@@ -1065,6 +1067,18 @@ gkyl_sundials_stepper_init_mri_extsts(struct gkyl_sundials *gksun,
   flag = ARKodeSetMaxNumSteps(gksun->arkode_mem_outer, inp->max_steps);
   sundials_check_flag(&flag, "ARKodeSetMaxNumSteps", 1);
 
+  if (!inp->fixed_step) {
+    // Adaptive outer steps (temporal error control), limited by the CFL stable
+    // time step of the SSP-RK terms. A fixed step is instead set from the same
+    // CFL limit in the reset and update functions.
+    flag = ARKodeSetStabilityFn(gksun->arkode_mem_outer, gksun->cfl_stable_dt_ssprk_func, inp->app_ctx);
+    sundials_check_flag(&flag, "ARKodeSetStabilityFn", 1);
+
+    // Set CFL safety factor one to ensure exact use of the stable time step size.
+    flag = ARKodeSetCFLFraction(gksun->arkode_mem_outer, SUN_RCONST(1.0));
+    sundials_check_flag(&flag, "ARKodeSetCFLFraction", 1);
+  }
+
   // Set pre/post processing methods in arkode mem. The SSP-RK step hooks are
   // used at the beginning/end of each outer step, and the outer stages are
   // post-processed so that fields and boundary conditions are consistent with
@@ -1144,6 +1158,12 @@ gkyl_sundials_stepper_init(struct gkyl_sundials *gksun,
                      gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_LSRK_SSP_10_4);
   gksun->has_sts = gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_LSRK_RKC_2) ||
                    gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_LSRK_RKL_2);
+
+  if (inp->fixed_step && !gksun->has_ssprk) {
+    // Fixed steps are set by the CFL limit of the SSP-RK terms.
+    fprintf(stderr, "\ngkyl_sundials_stepper_init: Error, fixed_step requires a method with SSP-RK terms.\n");
+    assert(false);
+  }
 
   if (gkyl_sundials_check_rk_method(inp->rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3)) {
     // Gkeyll's native 3rd order 3-stage SSP RK.
@@ -1231,7 +1251,7 @@ gkyl_sundials_arkode_reset(struct gkyl_sundials *gksun, double time,
   }
 
   if (gksun->has_ssprk || gksun->is_extsts) {
-    if (gksun->is_opsplit || gksun->is_extsts ||
+    if (gksun->is_opsplit || gksun->is_extsts || gksun->stepper_inp->fixed_step ||
         gkyl_sundials_check_rk_method(gksun->stepper_inp->rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3)) {
       // Estimate the CFL stable dt.
       // Use the temporary NVector.
@@ -1248,8 +1268,10 @@ gkyl_sundials_arkode_reset(struct gkyl_sundials *gksun, double time,
         flag = ARKodeSetInitStep(gksun->arkode_mem_ssprk, dt_ssprk);
         sundials_check_flag(&flag, "ARKodeSetInitStep", 1);
 
-        // Set outer dt to the SSP-RK dt.
-        gkyl_sundials_set_fixed_step(gksun, dt_ssprk);
+        if (gksun->is_opsplit || gksun->stepper_inp->fixed_step) {
+          // Set outer dt to the SSP-RK dt.
+          gkyl_sundials_set_fixed_step(gksun, dt_ssprk);
+        }
       }
       else {
         double dt_init;
@@ -1258,6 +1280,11 @@ gkyl_sundials_arkode_reset(struct gkyl_sundials *gksun, double time,
         // Set the initial step size.
         flag = ARKodeSetInitStep(gksun->arkode_mem_ssprk, dt_init);
         sundials_check_flag(&flag, "ARKodeSetInitStep", 1);
+
+        if (gksun->stepper_inp->fixed_step) {
+          // Set the (outer) dt to the CFL stable dt.
+          gkyl_sundials_set_fixed_step(gksun, dt_init);
+        }
       }
     }
   }

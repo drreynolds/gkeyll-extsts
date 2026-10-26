@@ -82,6 +82,7 @@ struct gkyl_sundials_stepper_inp {
   enum gkyl_sundials_rk_method rk_method; // Time stepping method (default: GKYL_SUNDIALS_METHOD_RK_SSP_3_3).
   enum gkyl_sundials_opsplit_method opsplit_method; // Operator split type (default: GKYL_SUNDIALS_OPSPLIT_METHOD_LIE_TROTTER_1_1_2)
   int mri_coupling; // ARKODE_MRITableID of the outer ExtSTS method (default: 0 = SUNDIALS default).
+  bool fixed_step; // Fixed time step set by the CFL limit of the SSP-RK terms, instead of adaptive steps (default: false; the operator split always uses fixed steps; not available for STS-only methods).
   struct gkyl_sundials_nvec *gsnv; // Input NVECTOR.
   double t_curr; // Current simulation time.
   struct gkyl_sundials_app_ctx *app_ctx; // Context with app-specific data and functions.

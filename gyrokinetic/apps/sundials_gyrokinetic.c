@@ -574,7 +574,9 @@ post_process_step_gyrokinetic_sts(sunrealtype t_curr, N_Vector manynvec_y, long 
  * Unlike SSP-RK methods, whose stages are built from the state at the start
  * of the step (yn), ExtSTS stages are built from the current state (ycur), so
  * the operations of the first stage (e.g. clearing boundary fluxes) are applied
- * to the input vector.
+ * to the input vector. They are also applied to yn, because if the step is
+ * retried ycur is restored from yn without calling this function again (the
+ * first-stage RHS is reused).
  *
  * @param t_curr Current simulation time.
  * @param manynvec_y State vector (ycur).
@@ -597,6 +599,15 @@ pre_process_rk_stage_gyrokinetic_extsts(sunrealtype t_curr, N_Vector manynvec_y,
   unpack_manynvec_gyrokinetic_in(fdot_args, manynvec_y);
 
   app_ctx->pre_process_rk_stage_ssprk_func(app_ctx->app_ptr, t_curr, dt, fdot_args, stage_idx, num_stages);
+
+  if (stage_idx == 0) {
+    N_Vector manynvec_yn;
+    flag = ARKodeGetLastState(app_ctx->arkode_mem_outer, &manynvec_yn);
+    if (manynvec_yn != manynvec_y) {
+      unpack_manynvec_gyrokinetic_in(fdot_args, manynvec_yn);
+      app_ctx->pre_process_rk_stage_ssprk_func(app_ctx->app_ptr, t_curr, dt, fdot_args, stage_idx, num_stages);
+    }
+  }
   return 0;
 };
 

@@ -820,10 +820,14 @@ gyrokinetic_update_sundials(gkyl_gyrokinetic_app* app, double dt0)
   st.dt_actual = t_new - t_curr;
   st.dt_suggested = dt0;
 
-  if (gkyl_sundials_use_operator_split(app->gk_sundials) ||
-      gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_MRI_EXTSTS)) {
-    // Set the next time step to be tha CFL stable one for SSP-RK operator.
-    double dt_next = gkyl_sundials_get_cfl_dt_ssprk(app->gk_sundials);
+  bool use_opsplit = gkyl_sundials_use_operator_split(app->gk_sundials);
+  if (use_opsplit || app->sundials_stepper_inp.fixed_step) {
+    // Set the next time step to be the CFL stable one for the terms stepped
+    // with SSP-RK (all terms if the df/dt is not split).
+    bool split_dfdt = use_opsplit ||
+      gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_MRI_EXTSTS);
+    double dt_next = split_dfdt? gkyl_sundials_get_cfl_dt_ssprk(app->gk_sundials)
+                               : gkyl_sundials_get_cfl_dt(app->gk_sundials);
     gkyl_sundials_set_fixed_step(app->gk_sundials, dt_next);
     gkyl_sundials_set_fixed_step_ssprk(app->gk_sundials, dt_next);
     st.dt_suggested = dt_next;
@@ -1163,6 +1167,7 @@ gkyl_gyrokinetic_app_new_solver(struct gkyl_gk *gk, gkyl_gyrokinetic_app *app)
     app->sundials_stepper_inp.rk_method = gk->sundials_stepper.rk_method,
     app->sundials_stepper_inp.opsplit_method = gk->sundials_stepper.opsplit_method,
     app->sundials_stepper_inp.mri_coupling = gk->sundials_stepper.mri_coupling,
+    app->sundials_stepper_inp.fixed_step = gk->sundials_stepper.fixed_step,
     app->sundials_stepper_inp.rel_tol = gk->sundials_stepper.relative_tolerance,
     app->sundials_stepper_inp.abs_tol = gk->sundials_stepper.absolute_tolerance,
     app->sundials_stepper_inp.max_steps = gk->sundials_stepper.max_steps,
@@ -1371,7 +1376,8 @@ gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
     int ns_neut = app->num_neut_species;
     if (gkyl_sundials_use_operator_split(app->gk_sundials) ||
         gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_MRI_EXTSTS) ||
-        gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3)) {
+        gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3) ||
+        app->sundials_stepper_inp.fixed_step) {
       // Create a temporary ManyNvector with buffers to store dy/dt
       // Total number of Nvectors, i.e. quantities stepped in time.
       for (int i=0; i<ns_charged; ++i) {
@@ -1391,7 +1397,8 @@ gkyl_gyrokinetic_app_apply_ic(gkyl_gyrokinetic_app* app, double t0)
 
     if (gkyl_sundials_use_operator_split(app->gk_sundials) ||
         gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_MRI_EXTSTS) ||
-        gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3)) {
+        gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3) ||
+        app->sundials_stepper_inp.fixed_step) {
       for (int i=0; i<tot_num_vecs; ++i) {
         gkyl_sundials_nvec_release(snvec_arr[i]);
       }
@@ -3787,7 +3794,8 @@ gkyl_gyrokinetic_app_read_from_frame(gkyl_gyrokinetic_app *app, int frame)
     int ns_neut = app->num_neut_species;
     if (gkyl_sundials_use_operator_split(app->gk_sundials) ||
         gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_MRI_EXTSTS) ||
-        gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3)) {
+        gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3) ||
+        app->sundials_stepper_inp.fixed_step) {
       // Create a temporary ManyNvector with buffers to store dy/dt
       // Total number of Nvectors, i.e. quantities stepped in time.
       for (int i=0; i<ns_charged; ++i) {
@@ -3807,7 +3815,8 @@ gkyl_gyrokinetic_app_read_from_frame(gkyl_gyrokinetic_app *app, int frame)
 
     if (gkyl_sundials_use_operator_split(app->gk_sundials) ||
         gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_MRI_EXTSTS) ||
-        gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3)) {
+        gkyl_sundials_check_rk_method(app->sundials_stepper_inp.rk_method, 0, GKYL_SUNDIALS_METHOD_RK_SSP_3_3) ||
+        app->sundials_stepper_inp.fixed_step) {
       for (int i=0; i<tot_num_vecs; ++i) {
         gkyl_sundials_nvec_release(snvec_arr[i]);
       }
