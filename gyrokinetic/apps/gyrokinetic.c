@@ -2536,6 +2536,21 @@ gyrokinetic_dfdt_sts(gkyl_gyrokinetic_app* app, double tcurr, struct gkyl_gyroki
   // Operations prior to gk_species_rhs.
   gyrokinetic_dfdt_pre_species_rhs_sts(app, tcurr, fdot_args);
 
+  // Terms stepped with STS do not act on neutral species or produce boundary
+  // fluxes, so zero those rates; otherwise the time integrator would use
+  // whatever the output arrays last held. This is done here rather than in
+  // gyrokinetic_dfdt_post_species_rhs_sts because gyrokinetic_dfdt also calls
+  // that function after computing the SSP-RK boundary fluxes.
+  for (int i=0; i<app->num_species; ++i) {
+    struct gk_species *gk_s = &app->species[i];
+    gk_species_bflux_clear(app, &gk_s->bflux, bflux_out[i], 0.0);
+  }
+  for (int i=0; i<app->num_neut_species; ++i) {
+    struct gk_neut_species *gk_ns = &app->neut_species[i];
+    gkyl_array_clear(fout_neut[i], 0.0);
+    gk_neut_species_bflux_clear(app, &gk_ns->bflux, bflux_out_neut[i], 0.0);
+  }
+
   // Compute df/dt (not including sources).
   for (int i=0; i<app->num_species; ++i) {
     struct gk_species *gk_s = &app->species[i];
