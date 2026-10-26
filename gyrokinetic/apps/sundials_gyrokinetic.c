@@ -241,12 +241,12 @@ dfdt_gyrokinetic(sunrealtype t_curr, N_Vector manynvec_y, N_Vector manynvec_ydot
 
   // Distribute state vector as Gkeyll expects.
   int stage_idx, num_stages;
-  int flag = ARKodeGetStageIndex(app_ctx->arkode_mem_opsplit, &stage_idx, &num_stages);
+  int flag = ARKodeGetStageIndex(app_ctx->arkode_mem_outer, &stage_idx, &num_stages);
   if (stage_idx == 0) {
     // Treat this stage different because SUNDIALS passes yin instead of ycur
     // in stage=0 to avoid a yin->ycur copy at the beginning of every step.
     N_Vector manynvec_ycur;
-    flag = ARKodeGetCurrentState(app_ctx->arkode_mem_opsplit, &manynvec_ycur);
+    flag = ARKodeGetCurrentState(app_ctx->arkode_mem_outer, &manynvec_ycur);
     unpack_manynvec_gyrokinetic(fdot_args, manynvec_ycur, manynvec_ydot);
   }
   else {
@@ -584,7 +584,7 @@ pre_process_step_gyrokinetic_opsplit(sunrealtype t_curr, N_Vector manynvec_y, lo
   struct gkyl_sundials_app_ctx *app_ctx = ctx;
 
   double dt;
-  int flag = ARKodeGetCurrentStep(app_ctx->arkode_mem_opsplit, &dt);
+  int flag = ARKodeGetCurrentStep(app_ctx->arkode_mem_outer, &dt);
 
   // Distribute state vector as Gkeyll expects.
   struct gkyl_gyrokinetic_fdot_args *fdot_args = app_ctx->fdot_args_ptr;
@@ -610,7 +610,7 @@ post_process_step_gyrokinetic_opsplit(sunrealtype t_curr, N_Vector manynvec_y, l
   struct gkyl_sundials_app_ctx *app_ctx = ctx;
 
   double dt;
-  int flag = ARKodeGetCurrentStep(app_ctx->arkode_mem_opsplit, &dt);
+  int flag = ARKodeGetCurrentStep(app_ctx->arkode_mem_outer, &dt);
 
   // Distribute state vector as Gkeyll expects.
   struct gkyl_gyrokinetic_fdot_args *fdot_args = app_ctx->fdot_args_ptr;

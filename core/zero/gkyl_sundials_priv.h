@@ -58,7 +58,7 @@ struct gkyl_sundials
   SUNDomEigEstimator dom_eig_est; // Dominant eigenvalue estimator.
   bool is_opsplit; // Whether we are using an operator split approach.
   SUNStepper stepper_ssprk, stepper_sts; // Steppers for operator splitting.
-  void *arkode_mem_opsplit; // Memory for operator splotting.
+  void *arkode_mem_outer; // Memory for the outermost ARKODE stepper (e.g. operator split).
   // Methods assigned by specific apps.
   int (*snvec_efun_cell_norm_func)(N_Vector manyx, N_Vector manyw, void *ctx);
 

@@ -42,7 +42,7 @@ struct gkyl_sundials_app_ctx {
   void *fdot_args_ptr; // Arguments to df/dt calculation.
   void *arkode_mem_ssprk; // Memory for ARKODE SSP-RK stepper.
   void *arkode_mem_sts; // Memory for ARKODE STS stepper.
-  void *arkode_mem_opsplit; // Memory for ARKODE operator split stepper.
+  void *arkode_mem_outer; // Memory for the outermost ARKODE stepper (e.g. operator split).
   // Function that computes weight for the error norm.
   int (*error_wgt_func)(void *app_gen, const struct gkyl_array *xarr, struct gkyl_array *wgt, struct gkyl_range *local_range);
   // Function that computes df/dt for all operators, or for SSP-RK or STS operators separately.

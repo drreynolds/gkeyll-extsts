@@ -1031,32 +1031,32 @@ gkyl_sundials_stepper_init(struct gkyl_sundials *gksun,
       assert(false);
     }
 
-    gksun->arkode_mem_opsplit = SplittingStepCreate(steppers, num_partitions, inp->t_curr, nvin, nvin->sunctx);
-    sundials_check_flag(gksun->arkode_mem_opsplit, "SplittingStepCreate", 0);
+    gksun->arkode_mem_outer = SplittingStepCreate(steppers, num_partitions, inp->t_curr, nvin, nvin->sunctx);
+    sundials_check_flag(gksun->arkode_mem_outer, "SplittingStepCreate", 0);
 
-    flag = ARKodeSetUserData(gksun->arkode_mem_opsplit, inp->app_ctx);
+    flag = ARKodeSetUserData(gksun->arkode_mem_outer, inp->app_ctx);
 
     if (inp->opsplit_method != GKYL_SUNDIALS_OPSPLIT_METHOD_NONE) {
       // Set operator split method.
       SplittingStepCoefficients opsplit_coeffs = SplittingStepCoefficients_LoadCoefficients(gs_translate_gk_to_sundials_method_opsplit(inp->opsplit_method));
       sundials_check_flag(opsplit_coeffs, "SplittingStepCoefficients_LoadCoefficients", 0);
-      flag = SplittingStepSetCoefficients(gksun->arkode_mem_opsplit, opsplit_coeffs);
+      flag = SplittingStepSetCoefficients(gksun->arkode_mem_outer, opsplit_coeffs);
       sundials_check_flag(&flag, "SplittingStepSetCoefficients", 1);
       SplittingStepCoefficients_Destroy(&opsplit_coeffs);
     }
   
     // Set pre/post processing methods in arkode mem.
-    flag = ARKodeSetPreStepFn(gksun->arkode_mem_opsplit, gksun->pre_process_step_opsplit_func);
+    flag = ARKodeSetPreStepFn(gksun->arkode_mem_outer, gksun->pre_process_step_opsplit_func);
     sundials_check_flag(&flag, "ARKodeSetPreStepFn", 1);
-    flag = ARKodeSetPostStepFn(gksun->arkode_mem_opsplit, gksun->post_process_step_opsplit_func);
+    flag = ARKodeSetPostStepFn(gksun->arkode_mem_outer, gksun->post_process_step_opsplit_func);
     sundials_check_flag(&flag, "ARKodeSetPostStepFn", 1);
   }
   else {
-    gksun->arkode_mem_opsplit = gksun->has_ssprk? gksun->arkode_mem_ssprk : gksun->arkode_mem_sts;
+    gksun->arkode_mem_outer = gksun->has_ssprk? gksun->arkode_mem_ssprk : gksun->arkode_mem_sts;
   }
 
-  // Store operator split mem in context so it can be accessed in methods.
-  inp->app_ctx->arkode_mem_opsplit = gksun->arkode_mem_opsplit;
+  // Store outermost stepper mem in context so it can be accessed in methods.
+  inp->app_ctx->arkode_mem_outer = gksun->arkode_mem_outer;
 
 }
 
@@ -1068,7 +1068,7 @@ gkyl_sundials_arkode_reset(struct gkyl_sundials *gksun, double time,
 
   int flag;
 
-  flag = ARKodeReset(gksun->arkode_mem_opsplit, time, manynvin);
+  flag = ARKodeReset(gksun->arkode_mem_outer, time, manynvin);
   sundials_check_flag(&flag, "ARKodeReset", 1);
 
   if (gksun->has_sts) {
@@ -1115,7 +1115,7 @@ gkyl_sundials_arkode_reset(struct gkyl_sundials *gksun, double time,
 void
 gkyl_sundials_set_fixed_step(struct gkyl_sundials *gksun, double dt)
 {
-  int flag = ARKodeSetFixedStep(gksun->arkode_mem_opsplit, dt);
+  int flag = ARKodeSetFixedStep(gksun->arkode_mem_outer, dt);
   sundials_check_flag(&flag, "ARKodeSetFixedStep", 1);
 }
 
@@ -1164,7 +1164,7 @@ gkyl_sundials_evolve(struct gkyl_sundials *gksun, double t_new,
   N_Vector nvin = gsnv->nvec;
 
   // Call integrator to evolve the solution to time t_new.
-  int flag = ARKodeEvolve(gksun->arkode_mem_opsplit, t_new, nvin, t_curr, ARK_ONE_STEP);
+  int flag = ARKodeEvolve(gksun->arkode_mem_outer, t_new, nvin, t_curr, ARK_ONE_STEP);
   sundials_check_flag(&flag, "ARKodeEvolve", 1);
   if (flag != ARK_SUCCESS) {
     fprintf(stderr, "\ngkyl_sundials_evolve: Error, ARKodeEvolve failed with flag = %d.\n", flag);
@@ -1173,7 +1173,7 @@ gkyl_sundials_evolve(struct gkyl_sundials *gksun, double t_new,
 
   if (gksun->stepper_inp->print_arkode_stats) {
     printf("\n\n\nStep successful: advanced to time %g\n", *t_curr);
-    flag = ARKodePrintAllStats(gksun->arkode_mem_opsplit, stdout, SUN_OUTPUTFORMAT_TABLE);
+    flag = ARKodePrintAllStats(gksun->arkode_mem_outer, stdout, SUN_OUTPUTFORMAT_TABLE);
     sundials_check_flag(&flag, "ARKodePrintAllStats", 1);
     if (flag != ARK_SUCCESS) {
       fprintf(stderr, "\ngkyl_sundials_evolve: Error, ARKodePrintAllStats failed with flag = %d.\n", flag);
@@ -1198,14 +1198,14 @@ gkyl_sundials_get_num_error_test_failures(struct gkyl_sundials *gksun)
   long num_fail = 0;
   if (gksun->has_ssprk) {
     long num_fail_ssprk;
-    int flag = ARKodeGetNumErrTestFails(gksun->arkode_mem_opsplit, &num_fail_ssprk); 
+    int flag = ARKodeGetNumErrTestFails(gksun->arkode_mem_outer, &num_fail_ssprk); 
     sundials_check_flag(&flag, "ARKodeGetNumErrTestFails", 1);
     num_fail += num_fail_ssprk;
   }
 
   if (gksun->has_sts) {
     long num_fail_sts;
-    int flag = ARKodeGetNumErrTestFails(gksun->arkode_mem_opsplit, &num_fail_sts); 
+    int flag = ARKodeGetNumErrTestFails(gksun->arkode_mem_outer, &num_fail_sts); 
     sundials_check_flag(&flag, "ARKodeGetNumErrTestFails", 1);
     num_fail += num_fail_sts;
   }
@@ -1238,7 +1238,7 @@ double
 gkyl_sundials_get_last_dt(struct gkyl_sundials *gksun)
 {
   double dt_out;
-  int flag = ARKodeGetLastStep(gksun->arkode_mem_opsplit, &dt_out);
+  int flag = ARKodeGetLastStep(gksun->arkode_mem_outer, &dt_out);
   sundials_check_flag(&flag, "ARKodeGetLastStep", 1);
   return dt_out;
 }
@@ -1265,7 +1265,7 @@ double
 gkyl_sundials_get_current_dt(struct gkyl_sundials *gksun)
 {
   double dt_out;
-  int flag = ARKodeGetCurrentStep(gksun->arkode_mem_opsplit, &dt_out);
+  int flag = ARKodeGetCurrentStep(gksun->arkode_mem_outer, &dt_out);
   sundials_check_flag(&flag, "ARKodeGetCurrentStep", 1);
   return dt_out;
 }
@@ -1323,7 +1323,7 @@ gkyl_sundials_release(struct gkyl_sundials *gksun)
   if (gksun->is_opsplit) {
     SUNStepper_Destroy(&gksun->stepper_ssprk);
     SUNStepper_Destroy(&gksun->stepper_sts);
-    ARKodeFree(&gksun->arkode_mem_opsplit);
+    ARKodeFree(&gksun->arkode_mem_outer);
   }
 
   SUNContext_Free(&gksun->sunctx);
