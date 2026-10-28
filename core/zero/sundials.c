@@ -1584,7 +1584,9 @@ gkyl_sundials_nvec_new(struct gkyl_sundials *gksun, struct gkyl_array *arr,
   NV_CONTENT_GKZ(nvout)->local_range = local_range;
   // Global number of cells, needed to normalize the WRMS norm consistently across ranks.
   double local_volume = local_range->volume, global_volume = local_volume;
-  gkyl_comm_allreduce_host(comm, GKYL_DOUBLE, GKYL_SUM, 1, &local_volume, &global_volume);
+  if (comm) {
+    gkyl_comm_allreduce_host(comm, GKYL_DOUBLE, GKYL_SUM, 1, &local_volume, &global_volume);
+  }
   NV_CONTENT_GKZ(nvout)->global_volume = global_volume;
   NV_CONTENT_GKZ(nvout)->no_error_norm = no_error_norm;
   NV_CONTENT_GKZ(nvout)->not_stepped = not_stepped;
