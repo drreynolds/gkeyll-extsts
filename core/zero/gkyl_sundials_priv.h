@@ -34,6 +34,7 @@ struct _N_VectorContent_Gkeyll
   sunbooleantype use_gpu; // Whether data is on GPU.
   struct gkyl_comm *comm; // Communicator.
   struct gkyl_range *local_range; // Local range.
+  double global_volume; // Number of cells over all ranks (normalization of the WRMS norm).
   struct gkyl_sundials_reduce_mem *red_mem; // Memory for reductions.
   bool no_error_norm; // Whether to exclude it from the calculation of dt or error norms.
   bool not_stepped; // Whether to exclude it from time stepping.

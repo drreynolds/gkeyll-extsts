@@ -113,6 +113,7 @@ snvec_clone(N_Vector nvin)
   NV_CONTENT_GKZ(nvout)->use_gpu       = NV_CONTENT_GKZ(nvin)->use_gpu;
   NV_CONTENT_GKZ(nvout)->comm          = NV_CONTENT_GKZ(nvin)->comm;
   NV_CONTENT_GKZ(nvout)->local_range   = NV_CONTENT_GKZ(nvin)->local_range;
+  NV_CONTENT_GKZ(nvout)->global_volume = NV_CONTENT_GKZ(nvin)->global_volume;
   NV_CONTENT_GKZ(nvout)->no_error_norm = NV_CONTENT_GKZ(nvin)->no_error_norm;
   NV_CONTENT_GKZ(nvout)->not_stepped   = NV_CONTENT_GKZ(nvin)->not_stepped;
   NV_CONTENT_GKZ(nvout)->red_mem       = NV_CONTENT_GKZ(nvin)->red_mem;
@@ -465,7 +466,8 @@ snvec_wrms_norm(N_Vector nvx, N_Vector nvwgt)
   // Use the 0th component because each component should have the same result.
   sunrealtype red_out = red_mem->red_global_ho[0];
 
-  red_out = SUNRsqrt(red_out / local_range->volume);
+  // Divide by the global number of cells: the sum above was reduced over all ranks.
+  red_out = SUNRsqrt(red_out / NV_CONTENT_GKZ(nvx)->global_volume);
 
   return red_out;
 }
@@ -1580,6 +1582,10 @@ gkyl_sundials_nvec_new(struct gkyl_sundials *gksun, struct gkyl_array *arr,
   NV_CONTENT_GKZ(nvout)->use_gpu = gkyl_array_is_cu_dev(arr);
   NV_CONTENT_GKZ(nvout)->comm = comm;
   NV_CONTENT_GKZ(nvout)->local_range = local_range;
+  // Global number of cells, needed to normalize the WRMS norm consistently across ranks.
+  double local_volume = local_range->volume, global_volume = local_volume;
+  gkyl_comm_allreduce_host(comm, GKYL_DOUBLE, GKYL_SUM, 1, &local_volume, &global_volume);
+  NV_CONTENT_GKZ(nvout)->global_volume = global_volume;
   NV_CONTENT_GKZ(nvout)->no_error_norm = no_error_norm;
   NV_CONTENT_GKZ(nvout)->not_stepped = not_stepped;
   NV_CONTENT_GKZ(nvout)->arr = arr;
